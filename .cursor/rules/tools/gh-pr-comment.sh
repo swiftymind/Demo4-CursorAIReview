@@ -131,13 +131,17 @@ echo "Latest Commit ID: $LATEST_COMMIT_ID"
 # Add review comment using GitHub API
 if [ "$USE_GH_CLI" = true ]; then
     # Use GitHub CLI to post comment (more secure)
-    RESPONSE=$(gh api "repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments" \
+    if gh api "repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments" \
         --method POST \
         --field body="$COMMENT" \
         --field commit_id="$LATEST_COMMIT_ID" \
         --field path="$FILE_PATH" \
         --field line="$LINE_NUMBER" \
-        --field side="RIGHT" 2>/dev/null && echo "201" || echo "error")
+        --field side="RIGHT" >/dev/null 2>&1; then
+        RESPONSE="201"
+    else
+        RESPONSE="error"
+    fi
 else
     # Fallback to manual curl
     API_URL="https://api.github.com/repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments"
