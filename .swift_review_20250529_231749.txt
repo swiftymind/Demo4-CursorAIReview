@@ -1,0 +1,13 @@
+Swift Pre-commit Review Report - 20250529_231749
+==============================================
+Total Issues: 0
+SwiftLint: 0
+Conventions: 0
+Architecture: 0
+iOS Issues: 0
+
+Files analyzed:
+GitHubExplorer/APIServiceProtocol.swift
+GitHubExplorer/GithubHomeView.swift
+GitHubExplorer/OwnerDetailView.swift
+GitHubExplorer/RepositoryDetailView.swift
