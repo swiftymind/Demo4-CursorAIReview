@@ -1,207 +1,240 @@
 import SwiftUI
 import Shimmer
 
-struct GithubHomeView: View {
-    @StateObject var viewModel = GithubHomeViewModel()
+struct OwnerDetailView: View {
+    @StateObject private var viewModel: OwnerDetailViewModel
+    private let owner: Owner
+
+    private let columns = [
+        GridItem(.flexible(minimum: 160), spacing: 16),
+        GridItem(.flexible(minimum: 160), spacing: 16)
+    ]
+
+    init(owner: Owner, apiService: APIServiceProtocol = APIServiceImpl()) {
+        self.owner = owner
+        _viewModel = StateObject(wrappedValue: OwnerDetailViewModel(owner: owner, apiService: apiService))
+    }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Category selection
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(RepoCategory.allCases, id: \.self) { category in
-                                CategoryButton(
-                                    title: category.rawValue,
-                                    isSelected: viewModel.selectedCategory == category
-                                ) {
-                                    viewModel.selectedCategory = category
-                                    Task {
-                                        await viewModel.fetchRepositories()
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
+        ScrollView {
+            VStack(spacing: 20) {
+                if viewModel.isLoading {
+                    ShimmerOwnerProfile()
+                } else {
+                    ownerProfileSection
+                }
 
-                    // Main content
-                    if viewModel.displayState == .loading {
-                        ShimmerRepositoryList()
-                    } else if case .error(let message) = viewModel.displayState {
-                        ContentErrorView(message: message)
-                    } else {
-                        RepositoriesList(
-                            repositories: viewModel.searchResults.isEmpty ? viewModel.repositories : viewModel.searchResults
-                        )
-                    }
-                }
+                repositoriesSection
             }
-            .navigationTitle("GitHub Explorer")
-            .searchable(text: $viewModel.searchText, prompt: "Search repositories...")
-            .onSubmit(of: .search) {
-                Task {
-                    await viewModel.searchRepositories()
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Section(header: Text("Sort by Stars")) {
-                            Button("Most Stars") {
-                                viewModel.sortRepositoriesByStars(ascending: false)
-                            }
-                            Button("Least Stars") {
-                                viewModel.sortRepositoriesByStars(ascending: true)
-                            }
-                        }
+            .padding()
+        }
+        .navigationTitle("Owner Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await viewModel.fetchOwnerRepositories()
+        }
+    }
 
-                        Section(header: Text("Sort by Forks")) {
-                            Button("Most Forks") {
-                                viewModel.sortRepositoriesByForks(ascending: false)
-                            }
-                            Button("Least Forks") {
-                                viewModel.sortRepositoriesByForks(ascending: true)
-                            }
-                        }
-                    } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
-                            .foregroundStyle(.primary)
-                    }
+    private var ownerProfileSection: some View {
+        VStack(spacing: 20) {
+            // Owner Avatar and Info
+            AsyncImage(url: URL(string: owner.avatarUrl ?? "")) { image in
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 150, height: 150)
+                    .clipShape(Circle())
+            } placeholder: {
+                ProgressView()
+                    .frame(width: 150, height: 150)
+            }
+
+            Text(viewModel.ownerName)
+                .font(.title)
+                .bold()
+
+            // Stats Section
+            HStack(spacing: 40) {
+                VStack {
+                    Text("\(viewModel.repositoryCount)")
+                        .font(.title2)
+                        .bold()
+                    Text("Repositories")
+                        .font(.subheadline)
+                }
+
+                VStack {
+                    Text("\(viewModel.totalStars)")
+                        .font(.title2)
+                        .bold()
+                    Text("Total Stars")
+                        .font(.subheadline)
                 }
             }
-            .task {
-                await viewModel.fetchRepositories()
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(10)
+        }
+    }
+
+    private var repositoriesSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Popular Repositories")
+                .font(.headline)
+                .padding(.horizontal)
+
+            if viewModel.isLoading {
+                ShimmerRepositoryGrid()
+            } else if let error = viewModel.errorMessage {
+                Text(error)
+                    .foregroundColor(.red)
+                    .padding()
+            } else {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(viewModel.sortedRepositories) { repo in
+                        NavigationLink(destination: RepositoryDetailView(repository: repo)) {
+                            RepositoryGridItem(repository: repo)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .padding(.horizontal)
             }
         }
     }
 }
 
-// MARK: - Supporting Views
+// MARK: - Shimmer Views
 
-struct CategoryButton: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-
+struct ShimmerOwnerProfile: View {
     var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(isSelected ? .blue : Color(.systemGray6))
-                .foregroundStyle(isSelected ? .white : .primary)
-                .clipShape(Capsule())
+        VStack(spacing: 20) {
+            // Avatar
+            Circle()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: 150, height: 150)
+                .shimmering()
+
+            // Username
+            Rectangle()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: 200, height: 30)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .shimmering()
+
+            // Stats Section
+            HStack(spacing: 40) {
+                // Repositories Count
+                VStack {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 60, height: 30)
+                        .shimmering()
+
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 80, height: 20)
+                        .shimmering()
+                }
+
+                // Total Stars
+                VStack {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 60, height: 30)
+                        .shimmering()
+
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 80, height: 20)
+                        .shimmering()
+                }
+            }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(10)
         }
-        .buttonStyle(.plain)
     }
 }
 
-struct ContentLoadingView: View {
+struct ShimmerRepositoryGrid: View {
+    let numberOfItems = 4
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            ProgressView()
-            Text("Loading repositories...")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        LazyVGrid(columns: [
+            GridItem(.flexible(minimum: 160), spacing: 16),
+            GridItem(.flexible(minimum: 160), spacing: 16)
+        ], spacing: 16) {
+            ForEach(0..<numberOfItems, id: \.self) { _ in
+                ShimmerGridItem()
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.1), radius: 8, x: 0, y: 4)
-        .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.05), radius: 2, x: 0, y: 2)
         .padding(.horizontal)
     }
 }
 
-struct ContentErrorView: View {
-    let message: String
-
+struct ShimmerGridItem: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.largeTitle)
-                .foregroundStyle(.red)
+            // Title
+            Rectangle()
+                .fill(Color.gray.opacity(0.3))
+                .frame(height: 20)
+                .shimmering()
 
-            Text("Error Loading Data")
-                .font(.headline)
+            // Description
+            VStack(alignment: .leading, spacing: 4) {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(height: 16)
+                    .shimmering()
 
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 150, height: 16)
+                    .shimmering()
+            }
+
+            Spacer()
+
+            // Stats
+            HStack(spacing: 16) {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 60, height: 20)
+                    .shimmering()
+
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 60, height: 20)
+                    .shimmering()
+
+                Spacer()
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 150)
         .padding()
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.1), radius: 8, x: 0, y: 4)
         .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.05), radius: 2, x: 0, y: 2)
-        .padding(.horizontal)
     }
 }
 
-struct RepositoriesList: View {
-    let repositories: [Repository]
-
-    var body: some View {
-        LazyVStack(spacing: 16) {
-            ForEach(repositories) { repo in
-                NavigationLink(destination: RepositoryDetailView(repository: repo)) {
-                    RepositoryRow(repository: repo)
-                }
-            }
-
-            if repositories.isEmpty {
-                EmptyResultsView()
-            }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-    }
-}
-
-struct EmptyResultsView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-
-            Text("No Repositories Found")
-                .font(.headline)
-
-            Text("Try adjusting your search or selecting a different category")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.1), radius: 8, x: 0, y: 4)
-        .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.05), radius: 2, x: 0, y: 2)
-        .padding(.horizontal)
-    }
-}
-
-struct RepositoryRow: View {
+struct RepositoryGridItem: View {
     let repository: Repository
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Repository Name and Stats
             VStack(alignment: .leading, spacing: 4) {
-                Text(repository.name ?? "Unnamed Repository")
+                // Repository Name
+                Text(repository.name ?? "")
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
+                // Description
                 if let description = repository.description {
                     Text(description)
                         .font(.subheadline)
@@ -211,23 +244,30 @@ struct RepositoryRow: View {
                 }
             }
 
-            // Stats Row
-            HStack(spacing: 16) {
-                Label {
-                    Text(formatNumber(repository.stargazersCount ?? 0))
-                        .font(.subheadline)
-                } icon: {
-                    Image(systemName: "star.fill")
-                        .foregroundStyle(.yellow)
-                }
-                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
 
-                Label {
-                    Text(formatNumber(repository.forksCount ?? 0))
-                        .font(.subheadline)
-                } icon: {
-                    Image(systemName: "tuningfork")
-                        .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 8) {
+                // Stats
+                HStack(spacing: 16) {
+                    Label {
+                        Text(formatNumber(repository.stargazersCount ?? 0))
+                            .font(.caption)
+                    } icon: {
+                        Image(systemName: "star.fill")
+                            .foregroundStyle(.yellow)
+                    }
+                    .layoutPriority(1)
+
+                    Label {
+                        Text(formatNumber(repository.forksCount ?? 0))
+                            .font(.caption)
+                    } icon: {
+                        Image(systemName: "tuningfork")
+                            .foregroundStyle(.blue)
+                    }
+                    .layoutPriority(1)
+
+                    Spacer(minLength: 0)
                 }
                 .foregroundStyle(.secondary)
 
@@ -240,12 +280,12 @@ struct RepositoryRow: View {
                         .background(.red.gradient)
                         .clipShape(Capsule())
                 }
-
-                Spacer(minLength: 0)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
+        .frame(height: 150)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 16)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.1), radius: 8, x: 0, y: 4)
@@ -264,76 +304,5 @@ struct RepositoryRow: View {
         default:
             return "\(number)"
         }
-    }
-}
-
-// MARK: - Shimmer Views
-
-struct ShimmerRepositoryList: View {
-    let numberOfShimmerCards = 5
-
-    var body: some View {
-        LazyVStack(spacing: 16) {
-            ForEach(0..<numberOfShimmerCards, id: \.self) { _ in
-                ShimmerRepositoryRow()
-            }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-    }
-}
-
-struct ShimmerRepositoryRow: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Repository Name and Description
-            VStack(alignment: .leading, spacing: 8) {
-                // Name
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 200, height: 20)
-                    .shimmering()
-
-                // Description
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(height: 16)
-                    .shimmering()
-
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 150, height: 16)
-                    .shimmering()
-            }
-
-            // Stats Row
-            HStack(spacing: 16) {
-                // Stars
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 80, height: 20)
-                    .shimmering()
-
-                // Forks
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 80, height: 20)
-                    .shimmering()
-
-                Spacer()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.1), radius: 8, x: 0, y: 4)
-        .shadow(color: Color(.sRGBLinear, white: 0, opacity: 0.05), radius: 2, x: 0, y: 2)
-    }
-}
-
-#Preview {
-    NavigationStack {
-        GithubHomeView()
     }
 }

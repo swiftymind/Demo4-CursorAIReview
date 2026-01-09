@@ -1,96 +1,193 @@
-import Foundation
+import SwiftUI
 
-enum APIError: Error {
-    case badURL
-    case decodingError
+struct RepositoryDetailView: View {
+    @StateObject private var viewModel: RepositoryDetailViewModel
+
+    init(repository: Repository, apiService: APIServiceProtocol = APIServiceImpl()) {
+        _viewModel = StateObject(wrappedValue: RepositoryDetailViewModel(repository: repository, apiService: apiService))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header Section
+                VStack(alignment: .leading, spacing: 12) {
+                    // Owner Info
+                    HStack {
+                        AvatarView(
+                            name: viewModel.ownerName,
+                            url: viewModel.ownerAvatarUrl,
+                            owner: viewModel.repository.owner ?? Owner(id: 0, login: "", avatarUrl: "")
+                        )
+                        Text(viewModel.ownerName)
+                            .font(.headline)
+                        Spacer()
+
+                        ShareLink(item: viewModel.repositoryUrl) {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    // Repository Name
+                    Text(viewModel.repositoryName)
+                        .font(.title)
+                        .bold()
+                        .padding(.horizontal)
+
+                    // Description
+                    if let description = viewModel.description {
+                        Text(description)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(viewModel.isDescriptionExpanded ? nil : 3)
+                            .padding(.horizontal)
+                            .onTapGesture {
+                                withAnimation {
+                                    viewModel.isDescriptionExpanded.toggle()
+                                }
+                            }
+                    }
+                }
+
+                // Stats Cards
+                LazyVGrid(columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible())
+                ], spacing: 16) {
+                    StatCard(
+                        icon: "star.fill",
+                        iconColor: .yellow,
+                        title: "Stars",
+                        value: viewModel.starCount
+                    )
+
+                    StatCard(
+                        icon: "tuningfork",
+                        iconColor: .blue,
+                        title: "Forks",
+                        value: viewModel.forkCount
+                    )
+                }
+                .padding(.horizontal)
+
+                // Additional Info Section
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Repository Info")
+                        .font(.title2)
+                        .bold()
+                        .padding(.horizontal)
+
+                    VStack(spacing: 0) {
+                        InfoRow(
+                            icon: "info.circle.fill",
+                            title: "Visibility",
+                            value: "Public"
+                        )
+
+                        InfoRow(
+                            icon: "star.circle.fill",
+                            title: "Popularity",
+                            value: viewModel.isPopular ? "Popular Repository" : "Regular Repository"
+                        )
+                    }
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                }
+
+                // Action Buttons
+                VStack(spacing: 12) {
+                    Link(destination: viewModel.repositoryUrl) {
+                        HStack {
+                            Image(systemName: "globe")
+                            Text("View on GitHub")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.blue)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+                .padding()
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await viewModel.refreshRepositoryDetails()
+        }
+    }
 }
 
-protocol APIServiceProtocol {
-    func fetchRepositories(category: RepoCategory) async throws -> [Repository]
-    func searchRepositories(query: String) async throws -> [Repository]
-    func fetchRepositoryDetails(id: Int) async throws -> Repository
-}
+struct StatCard: View {
+    let icon: String
+    let iconColor: Color
+    let title: String
+    let value: String
 
-struct APIServiceImpl: APIServiceProtocol {
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.title)
+                .foregroundStyle(iconColor)
 
-    func fetchRepositories(category: RepoCategory) async throws -> [Repository] {
-        let query = "\(category.rawValue) language:swift"
-        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        guard let url = URL(string: "https://api.github.com/search/repositories?q=\(encodedQuery)&sort=stars&order=desc") else {
-            throw APIError.badURL
-        }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        do {
-            let searchResponse = try JSONDecoder().decode(SearchResponse.self, from: data)
-            return searchResponse.items
-        } catch {
-            throw APIError.decodingError
-        }
-    }
+            Text(value)
+                .font(.title2)
+                .bold()
 
-    func searchRepositories(query: String) async throws -> [Repository] {
-        guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://api.github.com/search/repositories?q=\(encodedQuery)") else {
-            throw APIError.badURL
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        do {
-            let searchResponse = try JSONDecoder().decode(SearchResponse.self, from: data)
-            return searchResponse.items
-        } catch {
-            throw APIError.decodingError
-        }
-    }
-
-    func fetchRepositoryDetails(id: Int) async throws -> Repository {
-        guard let url = URL(string: "https://api.github.com/repositories/\(id)") else {
-            throw APIError.badURL
-        }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        do {
-            return try JSONDecoder().decode(Repository.self, from: data)
-        } catch {
-            throw APIError.decodingError
-        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
-struct Repository: Decodable, Identifiable {
-    let id: Int
-    let name: String?
-    let owner: Owner?
-    let forksCount: Int?
-    let stargazersCount: Int?
-    let description: String?
+struct InfoRow: View {
+    let icon: String
+    let title: String
+    let value: String
 
-    // Computed properties for display
-    var starRating: String {
-        // For a visual representation, limiting the count to max 5 stars
-        let count = (stargazersCount ?? 0) / 2000
-        return String(repeating: "⭐", count: min(max(count, 0), 5))
-    }
-    var isPopular: Bool { (stargazersCount ?? 0) >= 1000 }
-    var formattedForks: String { "\(forksCount ?? 0) forks" }
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundStyle(.blue)
+                .frame(width: 30)
 
-    enum CodingKeys: String, CodingKey {
-        case id, name, owner, description
-        case forksCount = "forks_count"
-        case stargazersCount = "stargazers_count"
-    }
-}
+            Text(title)
+                .foregroundStyle(.secondary)
 
-struct Owner: Decodable, Identifiable {
-    let id: Int
-    let login: String?
-    let avatarUrl: String?
+            Spacer()
 
-    enum CodingKeys: String, CodingKey {
-        case id, login
-        case avatarUrl = "avatar_url"
+            Text(value)
+                .foregroundStyle(.primary)
+        }
+        .padding()
+        .background(Color(uiColor: .systemBackground))
+
+        Divider()
+            .padding(.leading, 56)
     }
 }
 
-// Add this struct so that the search response can be decoded properly.
-struct SearchResponse: Decodable {
-    let items: [Repository]
+#Preview {
+    NavigationView {
+        RepositoryDetailView(repository: Repository(
+            id: 1,
+            name: "Alamofire",
+            owner: Owner(
+                id: 1,
+                login: "Alamofire",
+                avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4"
+            ),
+            forksCount: 7606,
+            stargazersCount: 39500,
+            description: "Elegant HTTP Networking in Swift. The most widely used HTTP networking library for iOS and macOS applications, built on top of URLSession. Provides an elegant interface for making HTTP requests, handling responses, and managing network connectivity."
+        ))
+    }
 }
